@@ -9,8 +9,7 @@
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLS, LCD_ROWS);
 
-void showMessage(String line1, String line2 = "")
-{
+void showMessage(String line1, String line2 = "") {
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print(line1);
@@ -18,8 +17,7 @@ void showMessage(String line1, String line2 = "")
   lcd.print(line2);
 }
 
-long readDistanceCm()
-{
+long readDistanceCm() {
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
   digitalWrite(TRIG_PIN, HIGH);
@@ -31,14 +29,12 @@ long readDistanceCm()
   return duration / 58;
 }
 
-bool objectDetected()
-{
+bool objectDetected() {
   long dist = readDistanceCm();
   return dist > 0 && dist < DISTANCE_THRESHOLD;
 }
 
-int sendApiRequest(String endpoint, String method, String payload = "")
-{
+int sendApiRequest(String endpoint, String method, String payload = "") {
   WiFiClientSecure secureClient;
   secureClient.setInsecure();
 
@@ -49,25 +45,20 @@ int sendApiRequest(String endpoint, String method, String payload = "")
   Serial.print(" ");
   Serial.println(url);
 
-  if (!http.begin(secureClient, url))
-  {
+  if (!http.begin(secureClient, url)) {
     Serial.println("HTTP begin failed");
     return -1;
   }
 
   http.setTimeout(5000);
-  if (method == "POST")
-  {
+  if (method == "POST") {
     http.addHeader("Content-Type", "application/json");
   }
 
   int code = -1;
-  if (method == "GET")
-  {
+  if (method == "GET") {
     code = http.GET();
-  }
-  else if (method == "POST")
-  {
+  } else if (method == "POST") {
     code = http.POST(payload);
   }
 
@@ -77,8 +68,7 @@ int sendApiRequest(String endpoint, String method, String payload = "")
   return code;
 }
 
-void setup()
-{
+void setup() {
   Serial.begin(115200);
   Serial.println("=== Starting system ===");
 
@@ -110,8 +100,7 @@ void setup()
   Serial.println(WIFI_SSID);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  while (WiFi.status() != WL_CONNECTED)
-  {
+  while (WiFi.status() != WL_CONNECTED) {
     delay(300);
     Serial.print(".");
   }
@@ -123,11 +112,9 @@ void setup()
   Serial.println("System ready. Waiting for box...");
 }
 
-String getTagRfid()
-{
+String getTagRfid() {
   String tag = "";
-  for (byte i = 0; i < mfrc522.uid.size; i++)
-  {
+  for (byte i = 0; i < mfrc522.uid.size; i++) {
     if (mfrc522.uid.uidByte[i] < 0x10)
       tag += "0";
     tag += String(mfrc522.uid.uidByte[i], HEX);
@@ -136,8 +123,7 @@ String getTagRfid()
   return tag;
 }
 
-void notifyRequesting(String tag)
-{
+void notifyRequesting(String tag) {
   showMessage("Sending...", tag);
   Serial.println("Sending request to API...");
   digitalWrite(BUZZER_PIN, HIGH);
@@ -145,8 +131,7 @@ void notifyRequesting(String tag)
   digitalWrite(BUZZER_PIN, LOW);
 }
 
-void signalSuccess(String tag, bool wasInput)
-{
+void signalSuccess(String tag, bool wasInput) {
   Serial.println(wasInput ? "SUCCESS: input registered" : "SUCCESS: output registered");
   digitalWrite(GREEN_LED_PIN, HIGH);
   digitalWrite(BUZZER_PIN, HIGH);
@@ -157,14 +142,12 @@ void signalSuccess(String tag, bool wasInput)
   digitalWrite(GREEN_LED_PIN, LOW);
 }
 
-void signalError(String reason)
-{
+void signalError(String reason) {
   Serial.print("ERROR: ");
   Serial.println(reason);
   digitalWrite(RED_LED_PIN, HIGH);
   showMessage("Error", reason);
-  for (int i = 0; i < 3; i++)
-  {
+  for (int i = 0; i < 3; i++) {
     digitalWrite(BUZZER_PIN, HIGH);
     delay(100);
     digitalWrite(BUZZER_PIN, LOW);
@@ -174,80 +157,61 @@ void signalError(String reason)
   digitalWrite(RED_LED_PIN, LOW);
 }
 
-bool boxExists(String tag)
-{
+bool boxExists(String tag) {
   int code = sendApiRequest("/" + tag, "GET");
   return code == 200;
 }
 
-bool registerInput(String tag)
-{
+bool registerInput(String tag) {
   int code = sendApiRequest("/box/input/" + tag, "POST");
   return code == 201;
 }
 
-bool registerOutput(String tag)
-{
+bool registerOutput(String tag) {
   int code = sendApiRequest("/box/output/" + tag, "POST");
   return code == 200;
 }
 
-void loop()
-{
-  if (objectDetected())
-  {
+void loop() {
+  if (objectDetected()) {
     Serial.println("Object detected by ultrasonic sensor");
     showMessage("Reading...", "Hold tag near");
     unsigned long start = millis();
     bool read = false;
 
-    while (millis() - start < 3000 && !read)
-    {
-      if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial())
-      {
+    while (millis() - start < 3000 && !read) {
+      if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
         read = true;
       }
     }
 
-    if (read)
-    {
+    if (read) {
       String tag = getTagRfid();
       Serial.print("Tag read: ");
       Serial.println(tag);
 
-      if (tag.length() >= 5 && tag.length() <= 20)
-      {
+      if (tag.length() >= 5 && tag.length() <= 20) {
         notifyRequesting(tag);
 
         bool exists = boxExists(tag);
         bool success;
-        if (exists)
-        {
+        if (exists) {
           success = registerOutput(tag);
-        }
-        else
-        {
+        } else {
           success = registerInput(tag);
         }
 
-        if (success)
-        {
+        if (success) {
           signalSuccess(tag, !exists);
-        }
-        else
-        {
+        } else {
           signalError("API failed");
         }
-      }
-      else
-      {
+      } else {
         signalError("Invalid tag");
       }
       mfrc522.PICC_HaltA();
       mfrc522.PCD_StopCrypto1();
-    }
-    else
-    {
+    } else {
       signalError("No tag detected");
     }
 
