@@ -2,7 +2,6 @@
 #include <MFRC522.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <WiFiClientSecure.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
@@ -35,9 +34,6 @@ bool objectDetected() {
 }
 
 int sendApiRequest(String endpoint, String method, String payload = "") {
-  WiFiClientSecure secureClient;
-  secureClient.setInsecure();
-
   HTTPClient http;
   String url = String(API_BASE) + endpoint;
 
@@ -45,7 +41,7 @@ int sendApiRequest(String endpoint, String method, String payload = "") {
   Serial.print(" ");
   Serial.println(url);
 
-  if (!http.begin(secureClient, url)) {
+  if (!http.begin(url)) {
     Serial.println("HTTP begin failed");
     return -1;
   }
