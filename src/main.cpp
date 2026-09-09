@@ -4,6 +4,7 @@
 #include <HTTPClient.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
+#include <ArduinoJson.h>
 
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLS, LCD_ROWS);
@@ -33,7 +34,7 @@ bool objectDetected() {
   return dist > 0 && dist < DISTANCE_THRESHOLD;
 }
 
-int sendApiRequest(String endpoint, String method, String payload = "") {
+int sendApiRequest(String endpoint, String method, String payload, String *responseOut) {
   HTTPClient http;
   String url = String(API_BASE) + endpoint;
 
@@ -56,6 +57,10 @@ int sendApiRequest(String endpoint, String method, String payload = "") {
     code = http.GET();
   } else if (method == "POST") {
     code = http.POST(payload);
+  }
+
+  if (responseOut != nullptr) {
+    *responseOut = http.getString();
   }
 
   Serial.print("Response code: ");
@@ -132,10 +137,26 @@ void signalSuccess(String tag, bool wasInput) {
   digitalWrite(GREEN_LED_PIN, HIGH);
   digitalWrite(BUZZER_PIN, HIGH);
   showMessage(wasInput ? "Input OK" : "Output OK", tag);
-  delay(200);
+
+  for (int i = 0; i < 3; i++) {
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(100);
+    digitalWrite(BUZZER_PIN, LOW);
+    delay(100);
+  }
+
   digitalWrite(BUZZER_PIN, LOW);
   delay(1300);
   digitalWrite(GREEN_LED_PIN, LOW);
+}
+
+void showInputPosition(String tag, int column, int row) {
+  Serial.print("Box position -> column: ");
+  Serial.print(column);
+  Serial.print(", row: ");
+  Serial.println(row);
+  showMessage("Col:" + String(column), "Row:" + String(row));
+  delay(1500);
 }
 
 void signalError(String reason) {
@@ -154,17 +175,30 @@ void signalError(String reason) {
 }
 
 bool boxExists(String tag) {
-  int code = sendApiRequest("/" + tag, "GET");
+  int code = sendApiRequest("/" + tag, "GET", "", nullptr);
   return code == 200;
 }
 
-bool registerInput(String tag) {
-  int code = sendApiRequest("/box/input/" + tag, "POST");
-  return code == 201;
+bool registerInput(String tag, int &column, int &row) {
+  String response;
+  int code = sendApiRequest("/box/input/" + tag, "POST", "", &response);
+  if (code != 201) return false;
+
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, response);
+  if (err) {
+    Serial.print("JSON parse failed: ");
+    Serial.println(err.c_str());
+    return false;
+  }
+
+  column = doc["column"] | -1;
+  row = doc["row"] | -1;
+  return true;
 }
 
 bool registerOutput(String tag) {
-  int code = sendApiRequest("/box/output/" + tag, "POST");
+  int code = sendApiRequest("/box/output/" + tag, "POST", "", nullptr);
   return code == 200;
 }
 
@@ -189,16 +223,25 @@ void loop() {
       if (tag.length() >= 5 && tag.length() <= 20) {
         notifyRequesting(tag);
 
+        delay(1000);
+
         bool exists = boxExists(tag);
         bool success;
+        int column = -1;
+        int row = -1;
+
         if (exists) {
           success = registerOutput(tag);
         } else {
-          success = registerInput(tag);
+          success = registerInput(tag, column, row);
         }
 
         if (success) {
           signalSuccess(tag, !exists);
+          if (!exists) {
+            showInputPosition(tag, column, row);
+            delay(2000);
+          }
         } else {
           signalError("API failed");
         }
